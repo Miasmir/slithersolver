@@ -292,8 +292,8 @@ public class SlitherSolverOO
 				print();
 				System.out.printf("Considering %d,%d\n",c.row,c.col);
 				System.out.printf("Queue size: %d\n",queue.size());
-				for (Cell ce : queue)
-					System.out.printf("%d,%d; ",ce.row,ce.col);
+				// for (Cell ce : queue)
+					// System.out.printf("%d,%d; ",ce.row,ce.col);
 				System.out.println();
 				System.out.println("===================");				
 			}   
@@ -309,6 +309,8 @@ public class SlitherSolverOO
 			}
 			else
 			{	
+				//if(c.row == 18 && c.col == 22)
+				//	dumpVertices();
 				updateVertices(c.row,c.col);
 				while (stayOpen(c))
 					updateVertices(c.row,c.col);
@@ -340,6 +342,8 @@ public class SlitherSolverOO
 						//System.err.printf("Done: %d,%d ( )\n",c.row,c.col);
 					}
 				}
+				//if(c.row == 18 && c.col == 22)
+				//	dumpVertices();
 			}
 /*   			if (edges[6][3] > OFF)
 			{
@@ -617,6 +621,7 @@ public class SlitherSolverOO
 					//verticesBecomeInteresting(c.row,c.col);
 				}
 				//process of elimination
+				//also: prevent poking us with a corner when we have nowhere to go
 				if (c.edge(EDGE_UP).state == OFF)
 				{
 					if ((c.vertex(VERT_LD).state&UR)==0)
@@ -627,6 +632,8 @@ public class SlitherSolverOO
 					{
 						addEdge(c.edge(EDGE_LEFT));
 					}
+					c.vertex(VERT_LD).update(ALL-(LD|UNUSED),true,c);
+					c.vertex(VERT_RD).update(ALL-(RD|UNUSED),true,c);
 				}
 				if (c.edge(EDGE_LEFT).state == OFF)
 				{
@@ -638,6 +645,8 @@ public class SlitherSolverOO
 					{
 						addEdge(c.edge(EDGE_UP));
 					}
+					c.vertex(VERT_UR).update(ALL-(UR|UNUSED),true,c);
+					c.vertex(VERT_RD).update(ALL-(RD|UNUSED),true,c);
 				}
 				if (c.edge(EDGE_RIGHT).state == OFF)
 				{
@@ -649,6 +658,8 @@ public class SlitherSolverOO
 					{
 						addEdge(c.edge(EDGE_UP));
 					}
+					c.vertex(VERT_UL).update(ALL-(UL|UNUSED),true,c);
+					c.vertex(VERT_LD).update(ALL-(LD|UNUSED),true,c);
 				}
 				if (c.edge(EDGE_DOWN).state == OFF)
 				{
@@ -660,6 +671,8 @@ public class SlitherSolverOO
 					{
 						addEdge(c.edge(EDGE_LEFT));
 					}
+					c.vertex(VERT_UL).update(ALL-(UL|UNUSED),true,c);
+					c.vertex(VERT_UR).update(ALL-(UR|UNUSED),true,c);
 				}
 				//on edge adjacent to off edge
 				if (c.edge(EDGE_UP).state > OFF && c.edge(EDGE_LEFT).state == OFF ||
@@ -1021,8 +1034,8 @@ public class SlitherSolverOO
 		}
 		else //still more than one possibility
 		{
+			boolean interesting = changed;
 			changed = true;
-			boolean interesting = false;
 			while(changed)
 			{
 				changed = false;
@@ -1033,19 +1046,23 @@ public class SlitherSolverOO
 				changed |= forceUpOn|forceLeftOn|forceRightOn|forceDownOn;
 				if (forceUpOn)
 				{
-					matchColors(vert,EDGE_UP);
+					if(matchColors(vert,EDGE_UP))
+						vertexBecomesInteresting(vert.getVertex(EDGE_UP));
 				}
 				if (forceLeftOn)
 				{
-					matchColors(vert,EDGE_LEFT);
+					if(matchColors(vert,EDGE_LEFT))
+						vertexBecomesInteresting(vert.getVertex(EDGE_LEFT));
 				}
 				if (forceRightOn)
 				{
-					matchColors(vert,EDGE_RIGHT);
+					if(matchColors(vert,EDGE_RIGHT))
+						vertexBecomesInteresting(vert.getVertex(EDGE_RIGHT));
 				}
 				if (forceDownOn)
 				{
-					matchColors(vert,EDGE_DOWN);
+					if(matchColors(vert,EDGE_DOWN))
+						vertexBecomesInteresting(vert.getVertex(EDGE_DOWN));
 				}
 
 				boolean upOn = (row > 0) && (vert.get(EDGE_UP).state > OFF);
@@ -1083,25 +1100,28 @@ public class SlitherSolverOO
 				{
 					vert.get(EDGE_UP).state = OFF;
 					vertexBecomesInteresting(vert.getVertex(EDGE_UP));
+					interesting = true;
 				}
 				if (leftOff)
 				{
 					vert.get(EDGE_LEFT).state = OFF;
 					vertexBecomesInteresting(vert.getVertex(EDGE_LEFT));
+					interesting = true;
 				}
 				if (rightOff)
 				{
 					vert.get(EDGE_RIGHT).state = OFF;
 					vertexBecomesInteresting(vert.getVertex(EDGE_RIGHT));
+					interesting = true;
 				}
 				if (downOff)
 				{
 					vert.get(EDGE_DOWN).state = OFF;
 					vertexBecomesInteresting(vert.getVertex(EDGE_DOWN));
+					interesting = true;
 				}
 			
-				if (changed)
-					interesting = true;
+				interesting |= changed;
 			}
 			if (interesting)
 				vertexBecomesInteresting(row,col);
