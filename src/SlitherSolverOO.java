@@ -5,6 +5,7 @@
 
 import java.util.*;
 import java.io.StringReader;
+import java.io.PrintStream;
 import java.io.InputStream;
 import java.io.InputStreamReader;
 import java.io.IOException;
@@ -191,49 +192,75 @@ public class SlitherSolverOO
 	{
 		StringBuilder out = new StringBuilder();
 		Scanner in = new Scanner(inSource);
-		if (in.findWithinHorizon("id=\"LoopTable\"",0) == null)
-		{
-			in.close();
-			in = new Scanner(inSource);
-		}
-		else
-		{
-			in.useDelimiter("<");
-			while (in.hasNext())
-			{
-				String token = in.next();
-				if (token.contains("/table")) break;
-				out.append('<');
-				out.append(token);
-			}
-			inSource = out.toString();
-			out.setLength(0);
-			in.close();
-			in = new Scanner(inSource);
-		}
 		
+		HashSet<Integer> xPositions = new HashSet<Integer>();
+		HashSet<Integer> yPositions = new HashSet<Integer>();
+		int cells = 0;
+		int rows = 0;
+		int cols = 0;
+		
+		if (in.findWithinHorizon("class=\"board-back\"",0) == null)
+		{
+			in.close();
+			return "stripHTML: malformed input";
+		}
+
+		in.useDelimiter("<");
+		in.next();
+		while (in.hasNext())
+		{
+			String token = in.next();
+			if (token.contains("class=\"loop-line")) break;
+			if (token.contains("class=\"loop-task-cell\""))
+			{
+				cells++;
+			}
+			out.append('<');
+			out.append(token);
+		}
+		inSource = out.toString();
+		out.setLength(0);
+		in.close();
+		in = new Scanner(inSource);
+	
 		//System.out.print("ok");
 		
 		while(in.hasNext())
 		{
-			String match = in.findWithinHorizon("<td align=\"center\">\\d?</td>",0);
-			if (match == null) break;
-			String digit = match.replaceAll("\\D+","");
+			String matchTop = in.findWithinHorizon("top:\\s*\\d+px",0);
+			String matchLeft = in.findWithinHorizon("left:\\s*\\d+px",0);
+			String matchHint = in.findWithinHorizon(">\\d?</div>",0);
+			if (matchTop == null || matchLeft == null || matchHint == null) break;
+			int ypos = Integer.parseInt(matchTop.replaceAll("\\D+",""));
+			int xpos = Integer.parseInt(matchLeft.replaceAll("\\D+",""));
+			if (yPositions.add(ypos))
+			{
+				rows++;
+				out.append('\n');
+			}
+			if (xPositions.add(xpos))
+			{
+				cols++;
+			}
+			
+			String digit = matchHint.replaceAll("\\D+","");
 			if (digit.length() == 0)
 				out.append('.');
 			else
 				out.append(digit.charAt(0));
 		}
 		in.close();
-		int cells = out.length();
-		int rows = 0;
-		for (int i = 0; i < inSource.length()-3; i++)
-			if (inSource.regionMatches(i,"<tr",0,3))
-				rows++;
-		rows = rows/2;
-		int cols = cells/rows;
+		// int cells = out.length();
+		// int rows = 0;
+		// for (int i = 0; i < inSource.length()-3; i++)
+			// if (inSource.regionMatches(i,"<tr",0,3))
+				// rows++;
+		// rows = rows/2;
+		// int cols = cells/rows;
+		String result = String.format("%d %d%s",rows,cols,out.toString());
+		System.err.println(result);
 		
-		return String.format("%d %d\n%s",rows,cols,out.toString());
+		return result;
 	}
 	
 	public static void main(String[] args)
@@ -249,6 +276,8 @@ public class SlitherSolverOO
 		s.solve();
 		
 		s.print(false);
+		//s.dumpVertices();
+		
 	}
 	public void solve()
 	{
@@ -258,7 +287,7 @@ public class SlitherSolverOO
 		{
 			Cell c = queue.poll();
 			if (c.done) continue;
- 			  if (iters % 10000 == 0)
+ 			if (iters % 1000 == 0)
 			{
 				print();
 				System.out.printf("Considering %d,%d\n",c.row,c.col);
@@ -281,7 +310,7 @@ public class SlitherSolverOO
 			else
 			{	
 				updateVertices(c.row,c.col);
-				if (stayOpen(c))
+				while (stayOpen(c))
 					updateVertices(c.row,c.col);
 				if (c.clue == 0x01)
 				{
@@ -319,7 +348,10 @@ public class SlitherSolverOO
 				System.out.printf("%d,%d\n",row,col);
 				rows = 0/0;
 			}  */
+			/* if(!c.done)
+				cellBecomesInteresting(c.row,c.col); */
 			enqueueNext();
+				
 		}	
 		System.out.println(iters);
 	}
@@ -360,8 +392,8 @@ public class SlitherSolverOO
 				{
 					e.state = OFF;
 					changed = true;
-					//vertexBecomesInteresting(e.get(VERT_UL));
-					//vertexBecomesInteresting(e.get(VERT_RD));
+					vertexBecomesInteresting(e.get(VERT_UL),c);
+					vertexBecomesInteresting(e.get(VERT_RD),c);
 				}
 			}
 		}
@@ -377,7 +409,7 @@ public class SlitherSolverOO
 		{
 			for (Edge e : c.es)
 				if (onEdge != e)
-					e.state = OFF;
+					removeEdge(e);
 			c.done = true;
 			//System.err.printf("Done: %d,%d (%d)\n",c.row,c.col,c.clue);
 			updateVertices(c.row,c.col);
@@ -396,51 +428,53 @@ public class SlitherSolverOO
 				//receive signal
 				if ((c.vertex(VERT_UL).state&(UL|UNUSED))==0)
 				{
-					c.edge(EDGE_RIGHT).state = OFF;
-					c.edge(EDGE_DOWN).state = OFF;
+					removeEdge(c.edge(EDGE_RIGHT));
+					removeEdge(c.edge(EDGE_DOWN));
 				}
 				if ((c.vertex(VERT_UR).state&(UR|UNUSED))==0)
 				{
-					c.edge(EDGE_LEFT).state = OFF;
-					c.edge(EDGE_DOWN).state = OFF;
+					removeEdge(c.edge(EDGE_LEFT));
+					removeEdge(c.edge(EDGE_DOWN));
 				}
 				if ((c.vertex(VERT_LD).state&(LD|UNUSED))==0)
 				{
-					c.edge(EDGE_RIGHT).state = OFF;
-					c.edge(EDGE_UP).state = OFF;
+					removeEdge(c.edge(EDGE_RIGHT));
+					removeEdge(c.edge(EDGE_UP));
 				}
 				if ((c.vertex(VERT_RD).state&(RD|UNUSED))==0)
 				{
-					c.edge(EDGE_LEFT).state = OFF;
-					c.edge(EDGE_UP).state = OFF;
+					removeEdge(c.edge(EDGE_LEFT));
+					removeEdge(c.edge(EDGE_UP));
 				}
 				//require a tail
 				if (c.edge(EDGE_UP).state == OFF && c.edge(EDGE_LEFT).state == OFF)
 				{
-					c.vertex(VERT_RD).update(ALL - (UL | RD | UNUSED),true);
+					c.vertex(VERT_RD).update(ALL - (UL | RD | UNUSED),true,c);
 				}
 				if (c.edge(EDGE_UP).state == OFF && c.edge(EDGE_RIGHT).state == OFF)
 				{
-					c.vertex(VERT_LD).update(ALL - (UR | LD | UNUSED),true);
+					c.vertex(VERT_LD).update(ALL - (UR | LD | UNUSED),true,c);
 				}
 				if (c.edge(EDGE_DOWN).state == OFF && c.edge(EDGE_LEFT).state == OFF)
 				{
-					c.vertex(VERT_UR).update(ALL - (LD | UR | UNUSED),true);
+					c.vertex(VERT_UR).update(ALL - (LD | UR | UNUSED),true,c);
 				}
 				if (c.edge(EDGE_DOWN).state == OFF && c.edge(EDGE_RIGHT).state == OFF)
 				{
-					c.vertex(VERT_UL).update(ALL - (UL | RD | UNUSED),true);
+					c.vertex(VERT_UL).update(ALL - (UL | RD | UNUSED),true,c);
 				}
 				
-				c.vertex(VERT_UL).update(ALL - RD,true);
-				c.vertex(VERT_UR).update(ALL - LD,true);
-				c.vertex(VERT_LD).update(ALL - UR,true);
-				c.vertex(VERT_RD).update(ALL - UL,true);
+				c.vertex(VERT_UL).update(ALL - RD,true,c);
+				c.vertex(VERT_UR).update(ALL - LD,true,c);
+				c.vertex(VERT_LD).update(ALL - UR,true,c);
+				c.vertex(VERT_RD).update(ALL - UL,true,c);
 				updateVertices(c.row,c.col);
 				
 				for (byte vin = VERT_UL; vin <= VERT_RD; vin++)
+				{
 					if (vstates[vin] != c.vs[vin].state)
 						changed = true;
+				}
 			}//while(changed)
 			
 			if (fillCellQuota(c))
@@ -450,6 +484,7 @@ public class SlitherSolverOO
 				updateVertices(c.row,c.col);
 			}
 		}
+		//cellBecomesInteresting(c.row,c.col);
 	}
 	public void resolveTwoCell(Cell c)
 	{
@@ -461,7 +496,8 @@ public class SlitherSolverOO
 		if (onEdges == 2)
 		{
 			for (Edge e : c.es)
-				if (e.state == UNKNOWN) e.state = OFF;
+				if (e.state == UNKNOWN)
+					removeEdge(e);
 			c.done = true;
 			//System.err.printf("Done: %d,%d (%d)\n",c.row,c.col,c.clue);
 			updateVertices(c.row,c.col);
@@ -494,8 +530,7 @@ public class SlitherSolverOO
 				}
 				if (rdMask != ALL)
 				{
-					c.vertex(VERT_RD).state &= rdMask;
-					vertexBecomesInteresting(c.vertex(VERT_RD));
+					c.vertex(VERT_RD).update(rdMask,true,c);
 				}
 				
 				byte ldMask = ALL;
@@ -513,8 +548,7 @@ public class SlitherSolverOO
 				}
 				if (ldMask != ALL)
 				{
-					c.vertex(VERT_LD).state &= ldMask;
-					vertexBecomesInteresting(c.vertex(VERT_LD));
+					c.vertex(VERT_LD).update(ldMask,true,c);
 				}
 				
 				byte urMask = ALL;
@@ -532,8 +566,7 @@ public class SlitherSolverOO
 				}
 				if (urMask != ALL)
 				{
-					c.vertex(VERT_UR).state &= urMask;
-					vertexBecomesInteresting(c.vertex(VERT_UR));
+					c.vertex(VERT_UR).update(urMask,true,c);
 				}
 				
 				byte ulMask = ALL;
@@ -551,37 +584,36 @@ public class SlitherSolverOO
 				}
 				if (ulMask != ALL)
 				{
-					c.vertex(VERT_UL).state &= ulMask;
-					vertexBecomesInteresting(c.vertex(VERT_UL));
+					c.vertex(VERT_UL).update(ulMask,true,c);
 				}
 				
 				//the both-or-neither case
 				if (c.vertex(VERT_UL).state == (RD | UNUSED))
 				{
-					c.vertex(VERT_RD).state &= RD | UL | UNUSED;
-					c.vertex(VERT_UR).state &= ALL - (UR | LD | UNUSED);
-					c.vertex(VERT_LD).state &= ALL - (UR | LD | UNUSED);
+					c.vertex(VERT_RD).update(RD | UL | UNUSED,true,c);
+					c.vertex(VERT_UR).update(ALL - (UR | LD | UNUSED),true,c);
+					c.vertex(VERT_LD).update(ALL - (UR | LD | UNUSED),true,c);
 					//verticesBecomeInteresting(c.row,c.col);
 				}
 				if (c.vertex(VERT_UR).state == (LD | UNUSED))
 				{
-					c.vertex(VERT_LD).state &= LD | UR | UNUSED;
-					c.vertex(VERT_UL).state &= ALL - (UL | RD | UNUSED);
-					c.vertex(VERT_RD).state &= ALL - (UL | RD | UNUSED);
+					c.vertex(VERT_LD).update(LD | UR | UNUSED,true,c);
+					c.vertex(VERT_UL).update(ALL - (UL | RD | UNUSED),true,c);
+					c.vertex(VERT_RD).update(ALL - (UL | RD | UNUSED),true,c);
 					//verticesBecomeInteresting(c.row,c.col);
 				}
 				if (c.vertex(VERT_LD).state == (UR | UNUSED))
 				{
-					c.vertex(VERT_UR).state &= UR | LD | UNUSED;
-					c.vertex(VERT_UL).state &= ALL - (UL | RD | UNUSED);
-					c.vertex(VERT_RD).state &= ALL - (UL | RD | UNUSED);
+					c.vertex(VERT_UR).update(UR | LD | UNUSED,true,c);
+					c.vertex(VERT_UL).update(ALL - (UL | RD | UNUSED),true,c);
+					c.vertex(VERT_RD).update(ALL - (UL | RD | UNUSED),true,c);
 					//verticesBecomeInteresting(c.row,c.col);
 				}
 				if (c.vertex(VERT_RD).state == (UL | UNUSED))
 				{
-					c.vertex(VERT_UL).state &= UL | RD | UNUSED;
-					c.vertex(VERT_UR).state &= ALL - (UR | LD | UNUSED);
-					c.vertex(VERT_LD).state &= ALL - (UR | LD | UNUSED);
+					c.vertex(VERT_UL).update(UL | RD | UNUSED,true,c);
+					c.vertex(VERT_UR).update(ALL - (UR | LD | UNUSED),true,c);
+					c.vertex(VERT_LD).update(ALL - (UR | LD | UNUSED),true,c);
 					//verticesBecomeInteresting(c.row,c.col);
 				}
 				//process of elimination
@@ -633,22 +665,22 @@ public class SlitherSolverOO
 				if (c.edge(EDGE_UP).state > OFF && c.edge(EDGE_LEFT).state == OFF ||
 					c.edge(EDGE_UP).state == OFF && c.edge(EDGE_LEFT).state > OFF)
 				{
-					c.vertex(VERT_RD).state &= ALL - (UL | RD | UNUSED);	
+					c.vertex(VERT_RD).update(ALL - (UL | RD | UNUSED),true,c);	
 				}
 				if (c.edge(EDGE_UP).state > OFF && c.edge(EDGE_RIGHT).state == OFF ||
 					c.edge(EDGE_UP).state == OFF && c.edge(EDGE_RIGHT).state > OFF)
 				{
-					c.vertex(VERT_LD).state &= ALL - (UR | LD | UNUSED);	
+					c.vertex(VERT_LD).update(ALL - (UR | LD | UNUSED),true,c);
 				}
 				if (c.edge(EDGE_DOWN).state > OFF && c.edge(EDGE_LEFT).state == OFF ||
 					c.edge(EDGE_DOWN).state == OFF && c.edge(EDGE_LEFT).state > OFF)
 				{
-					c.vertex(VERT_UR).state &= ALL - (UR | LD | UNUSED);	
+					c.vertex(VERT_UR).update(ALL - (UR | LD | UNUSED),true,c);	
 				}
 				if (c.edge(EDGE_DOWN).state > OFF && c.edge(EDGE_RIGHT).state == OFF ||
 					c.edge(EDGE_DOWN).state == OFF && c.edge(EDGE_RIGHT).state > OFF)
 				{
-					c.vertex(VERT_UL).state &= ALL - (UL | RD | UNUSED);	
+					c.vertex(VERT_UL).update(ALL - (UL | RD | UNUSED),true,c);
 				}
 
 				updateVertices(c.row,c.col);
@@ -665,6 +697,7 @@ public class SlitherSolverOO
 				updateVertices(c.row,c.col);
 			}
 		}
+		//cellBecomesInteresting(c.row,c.col);
 		//System.err.printf("Done processing the two at %d,%d.\n",row,col);
 	}
 	public void resolveThreeCell(Cell c)
@@ -676,7 +709,8 @@ public class SlitherSolverOO
 		if (onEdges == 3)
 		{
 			for (Edge e : c.es)
-				if (e.state == UNKNOWN) e.state = OFF;
+				if (e.state == UNKNOWN)
+					removeEdge(e);
 			c.done = true;
 			//System.err.printf("Done: %d,%d (%d)\n",c.row,c.col,c.clue);
 			updateVertices(c.row,c.col);
@@ -717,23 +751,19 @@ public class SlitherSolverOO
 				//send a signal
 				if (c.vertex(VERT_UL).state == RD)
 				{
-					c.vertex(VERT_RD).state &= ALL-UL;
-					vertexBecomesInteresting(c.vertex(VERT_RD));
+					c.vertex(VERT_RD).update(ALL-UL,true,c);
 				}
 				if (c.vertex(VERT_UR).state == LD)
 				{
-					c.vertex(VERT_LD).state &= ALL-UR;
-					vertexBecomesInteresting(c.vertex(VERT_LD));
+					c.vertex(VERT_LD).update(ALL-UR,true,c);
 				}
 				if (c.vertex(VERT_LD).state == UR)
 				{
-					c.vertex(VERT_UR).state &= ALL-LD;
-					vertexBecomesInteresting(c.vertex(VERT_UR));
+					c.vertex(VERT_UR).update(ALL-LD,true,c);
 				}
 				if (c.vertex(VERT_RD).state == UL)
 				{
-					c.vertex(VERT_UL).state &= ALL-RD;
-					vertexBecomesInteresting(c.vertex(VERT_UL));
+					c.vertex(VERT_UL).update(ALL-RD,true,c);
 				}
 				
 				//adjacent threes
@@ -741,29 +771,29 @@ public class SlitherSolverOO
 				{
 					addEdge(c.edge(EDGE_UP));
 					addEdge(c.edge(EDGE_DOWN));
-					c.vertex(VERT_UL).state &= UR | RD;
-					c.vertex(VERT_UR).state &= UL | LD;
+					c.vertex(VERT_UL).update(UR | RD,true,c);
+					c.vertex(VERT_UR).update(UL | LD,true,c);
 				}
 				if (c.row < rows-1 && cells[c.row+1][c.col].clue == 3)
 				{
 					addEdge(c.edge(EDGE_UP));
 					addEdge(c.edge(EDGE_DOWN));
-					c.vertex(VERT_LD).state &= UR | RD;
-					c.vertex(VERT_RD).state &= UL | LD;
+					c.vertex(VERT_LD).update(UR | RD,true,c);
+					c.vertex(VERT_RD).update(UL | LD,true,c);
 				}
 				if (c.col > 0 && cells[c.row][c.col-1].clue == 3)
 				{
 					addEdge(c.edge(EDGE_LEFT));
 					addEdge(c.edge(EDGE_RIGHT));
-					c.vertex(VERT_UL).state &= LD | RD;
-					c.vertex(VERT_LD).state &= UL | UR;
+					c.vertex(VERT_UL).update(LD | RD,true,c);
+					c.vertex(VERT_LD).update(UL | UR,true,c);
 				}
 				if (c.col < cols-1 && cells[c.row][c.col+1].clue == 3)
 				{
 					addEdge(c.edge(EDGE_LEFT));
 					addEdge(c.edge(EDGE_RIGHT));
-					c.vertex(VERT_UR).state &= LD | RD;
-					c.vertex(VERT_RD).state &= UL | UR;
+					c.vertex(VERT_UR).update(LD | RD,true,c);
+					c.vertex(VERT_RD).update(UL | UR,true,c);
 				}
 				
 				//loop closing stuff
@@ -816,10 +846,10 @@ public class SlitherSolverOO
 				
 				
 
-				c.vertex(VERT_UL).state &= ALL - (UL | UNUSED);
-				c.vertex(VERT_UR).state &= ALL - (UR | UNUSED);
-				c.vertex(VERT_LD).state &= ALL - (LD | UNUSED);
-				c.vertex(VERT_RD).state &= ALL - (RD | UNUSED);
+				c.vertex(VERT_UL).update(ALL - (UL | UNUSED),true,c);
+				c.vertex(VERT_UR).update(ALL - (UR | UNUSED),true,c);
+				c.vertex(VERT_LD).update(ALL - (LD | UNUSED),true,c);
+				c.vertex(VERT_RD).update(ALL - (RD | UNUSED),true,c);
 				updateVertices(c.row,c.col);
 				
 				for (byte vin = VERT_UL; vin <= VERT_RD; vin++)
@@ -834,11 +864,12 @@ public class SlitherSolverOO
 				updateVertices(c.row,c.col);
 			}
 		}
+		//cellBecomesInteresting(c.row,c.col);
 	}
 	public void addEdge(Edge e)
 	{
 		if (e == null) return;
-		if (e.state > OFF) return;
+		if (e.state != UNKNOWN) return;
 		//System.err.printf("Adding edge %d,%d\n",row,col);
 		////print();
 		if (e.horizontal)
@@ -852,6 +883,14 @@ public class SlitherSolverOO
 		vertexBecomesInteresting(e.get(VERT_UL));
 		vertexBecomesInteresting(e.get(VERT_RD));
 	}
+	public void removeEdge(Edge e)
+	{
+		if (e == null) return;
+		if (e.state != UNKNOWN) return;
+		e.state = OFF;
+		vertexBecomesInteresting(e.get(VERT_UL));
+		vertexBecomesInteresting(e.get(VERT_RD));		
+	}
 	public void updateVertices(int row, int col)
 	{
 		updateVertex(row,col);
@@ -863,6 +902,20 @@ public class SlitherSolverOO
 	{
 		Vertex vert = vertices[row][col];
 		byte v = vert.state;
+		
+		if (Integer.bitCount(v) == 1)
+		{
+			boolean foundUnknown = false;
+			foundUnknown |= row > 0 && (vert.get(EDGE_UP).state == UNKNOWN);
+			foundUnknown |= col > 0 && (vert.get(EDGE_LEFT).state == UNKNOWN);
+			foundUnknown |= row < rows && (vert.get(EDGE_DOWN).state == UNKNOWN);
+			foundUnknown |= col < cols && (vert.get(EDGE_RIGHT).state == UNKNOWN);
+			if (!foundUnknown)
+			{
+				//System.out.println("we double checked something");
+				return;
+			}
+		}
 		
 		boolean upOK = false;
 		boolean leftOK = false;
@@ -909,150 +962,150 @@ public class SlitherSolverOO
 		if (done)
 		{
 			//System.err.println("yo!");
-			changed = false;
 			if (upOK)
 			{
-				changed |= matchColors(vert,EDGE_UP);
+				if (matchColors(vert,EDGE_UP))
+					vertexBecomesInteresting(vert.getVertex(EDGE_UP));
 			}
 			else if (row > 0)
 			{
-				changed |= vert.get(EDGE_UP).state != OFF;
-				vert.get(EDGE_UP).state = OFF;
+				if (vert.get(EDGE_UP).state != OFF)
+				{
+					vert.get(EDGE_UP).state = OFF;
+					vertexBecomesInteresting(vert.getVertex(EDGE_UP));
+				}
 			}
-			if (changed) vertexBecomesInteresting(vert.getVertex(EDGE_UP));
-			changed = false;
+			
 			if (leftOK)
 			{
-				changed |= matchColors(vert,EDGE_LEFT);
+				if(matchColors(vert,EDGE_LEFT))
+					vertexBecomesInteresting(vert.getVertex(EDGE_LEFT));
 			}
 			else if (col > 0)
 			{
-				changed |= vert.get(EDGE_LEFT).state != OFF;
-				vert.get(EDGE_LEFT).state = OFF;
+				if (vert.get(EDGE_LEFT).state != OFF)
+				{
+					vert.get(EDGE_LEFT).state = OFF;
+					vertexBecomesInteresting(vert.getVertex(EDGE_LEFT));
+				}
 			}
-			if (changed) vertexBecomesInteresting(vert.getVertex(EDGE_LEFT));
-			changed = false;
+			
 			if (rightOK)
 			{
-				changed |= matchColors(vert,EDGE_RIGHT);
+				if(matchColors(vert,EDGE_RIGHT))
+					vertexBecomesInteresting(vert.getVertex(EDGE_RIGHT));
 			}
 			else if (col < cols)
 			{
-				changed |= vert.get(EDGE_RIGHT).state != OFF;
-				vert.get(EDGE_RIGHT).state = OFF;
+				if (vert.get(EDGE_RIGHT).state != OFF)
+				{
+					vert.get(EDGE_RIGHT).state = OFF;
+					vertexBecomesInteresting(vert.getVertex(EDGE_RIGHT));
+				}
 			}
-			if (changed) vertexBecomesInteresting(vert.getVertex(EDGE_RIGHT));
-			changed = false;
+
 			if (downOK)
 			{
-				changed |= matchColors(vert,EDGE_DOWN);
+				if(matchColors(vert,EDGE_DOWN))
+					vertexBecomesInteresting(vert.getVertex(EDGE_DOWN));
 			}
 			else if (row < rows)
 			{
-				changed |= vert.get(EDGE_DOWN).state != OFF;
-				vert.get(EDGE_DOWN).state = OFF;
+				if (vert.get(EDGE_DOWN).state != OFF)
+				{
+					vert.get(EDGE_DOWN).state = OFF;
+					vertexBecomesInteresting(vert.getVertex(EDGE_DOWN));
+				}
 			}
-			if (changed) vertexBecomesInteresting(vert.getVertex(EDGE_DOWN));
 			return;
 		}
 		else //still more than one possibility
 		{
-			boolean forceUpOn = (v&(LR|LD|RD|UNUSED)) == 0 && (row > 0) && (vert.get(EDGE_UP).state == UNKNOWN);
-			boolean forceLeftOn = (v&(UR|UD|RD|UNUSED)) == 0 && (col > 0) && (vert.get(EDGE_LEFT).state == UNKNOWN);
-			boolean forceRightOn = (v&(UL|UD|LD|UNUSED)) == 0 && (col < cols) && (vert.get(EDGE_RIGHT).state == UNKNOWN);
-			boolean forceDownOn = (v&(UL|UR|LR|UNUSED)) == 0 && (row < rows) && (vert.get(EDGE_DOWN).state == UNKNOWN);
-			changed |= forceUpOn|forceLeftOn|forceRightOn|forceDownOn;
-			if (forceUpOn)
+			changed = true;
+			boolean interesting = false;
+			while(changed)
 			{
-				matchColors(vert,EDGE_UP);
-			}
-			if (forceLeftOn)
-			{
-				matchColors(vert,EDGE_LEFT);
-			}
-			if (forceRightOn)
-			{
-				matchColors(vert,EDGE_RIGHT);
-			}
-			if (forceDownOn)
-			{
-				matchColors(vert,EDGE_DOWN);
-			}
+				changed = false;
+				boolean forceUpOn = (v&(LR|LD|RD|UNUSED)) == 0 && (row > 0) && (vert.get(EDGE_UP).state == UNKNOWN);
+				boolean forceLeftOn = (v&(UR|UD|RD|UNUSED)) == 0 && (col > 0) && (vert.get(EDGE_LEFT).state == UNKNOWN);
+				boolean forceRightOn = (v&(UL|UD|LD|UNUSED)) == 0 && (col < cols) && (vert.get(EDGE_RIGHT).state == UNKNOWN);
+				boolean forceDownOn = (v&(UL|UR|LR|UNUSED)) == 0 && (row < rows) && (vert.get(EDGE_DOWN).state == UNKNOWN);
+				changed |= forceUpOn|forceLeftOn|forceRightOn|forceDownOn;
+				if (forceUpOn)
+				{
+					matchColors(vert,EDGE_UP);
+				}
+				if (forceLeftOn)
+				{
+					matchColors(vert,EDGE_LEFT);
+				}
+				if (forceRightOn)
+				{
+					matchColors(vert,EDGE_RIGHT);
+				}
+				if (forceDownOn)
+				{
+					matchColors(vert,EDGE_DOWN);
+				}
 
-			boolean upOn = (row > 0) && (vert.get(EDGE_UP).state > OFF);
-			boolean leftOn = (col > 0) && (vert.get(EDGE_LEFT).state > OFF);
-			boolean rightOn = (col < cols) && (vert.get(EDGE_RIGHT).state > OFF);
-			boolean downOn = (row < rows) && (vert.get(EDGE_DOWN).state > OFF);
-			if (upOn)
-			{
-				v &= ALL - (LR | LD | RD | UNUSED);
-			}
-			if (leftOn)
-			{
-				v &= ALL - (UD | UR | RD | UNUSED);
-			}
-			if (rightOn)
-			{
-				v &= ALL - (UL | UD | LD | UNUSED);
-			}
-			if (downOn)
-			{
-				v &= ALL - (UL | UR | LR | UNUSED);
-			}
-			changed |= (vert.state != v);
-			vert.state = v;
-			if (Integer.bitCount(v) == 1)
-			{
-				updateVertex(row,col);
-				return;
-			}
-			boolean upOff = (row > 0) && (vert.get(EDGE_UP).state == UNKNOWN) && ((v&(UL|UR|UD))==0);
-			boolean leftOff = (col > 0) && (vert.get(EDGE_LEFT).state == UNKNOWN) && ((v&(UL|LR|LD))==0);
-			boolean rightOff = (col < cols) && (vert.get(EDGE_RIGHT).state == UNKNOWN) && ((v&(UR|LR|RD))==0);
-			boolean downOff = (row < rows) && (vert.get(EDGE_DOWN).state == UNKNOWN) && ((v&(UD|LD|RD))==0);
-			if (upOff)
-				vert.get(EDGE_UP).state = OFF;
-			if (leftOff)
-				vert.get(EDGE_LEFT).state = OFF;
-			if (rightOff)
-				vert.get(EDGE_RIGHT).state = OFF;
-			if (downOff)
-				vert.get(EDGE_DOWN).state = OFF;
+				boolean upOn = (row > 0) && (vert.get(EDGE_UP).state > OFF);
+				boolean leftOn = (col > 0) && (vert.get(EDGE_LEFT).state > OFF);
+				boolean rightOn = (col < cols) && (vert.get(EDGE_RIGHT).state > OFF);
+				boolean downOn = (row < rows) && (vert.get(EDGE_DOWN).state > OFF);
+				if (upOn)
+				{
+					v &= ALL - (LR | LD | RD | UNUSED);
+				}
+				if (leftOn)
+				{
+					v &= ALL - (UD | UR | RD | UNUSED);
+				}
+				if (rightOn)
+				{
+					v &= ALL - (UL | UD | LD | UNUSED);
+				}
+				if (downOn)
+				{
+					v &= ALL - (UL | UR | LR | UNUSED);
+				}
+				changed |= (vert.state != v);
+				vert.state = v;
+				if (Integer.bitCount(v) == 1)
+				{
+					updateVertex(row,col);
+					return;
+				}
+				boolean upOff = (row > 0) && (vert.get(EDGE_UP).state == UNKNOWN) && ((v&(UL|UR|UD))==0);
+				boolean leftOff = (col > 0) && (vert.get(EDGE_LEFT).state == UNKNOWN) && ((v&(UL|LR|LD))==0);
+				boolean rightOff = (col < cols) && (vert.get(EDGE_RIGHT).state == UNKNOWN) && ((v&(UR|LR|RD))==0);
+				boolean downOff = (row < rows) && (vert.get(EDGE_DOWN).state == UNKNOWN) && ((v&(UD|LD|RD))==0);
+				if (upOff)
+				{
+					vert.get(EDGE_UP).state = OFF;
+					vertexBecomesInteresting(vert.getVertex(EDGE_UP));
+				}
+				if (leftOff)
+				{
+					vert.get(EDGE_LEFT).state = OFF;
+					vertexBecomesInteresting(vert.getVertex(EDGE_LEFT));
+				}
+				if (rightOff)
+				{
+					vert.get(EDGE_RIGHT).state = OFF;
+					vertexBecomesInteresting(vert.getVertex(EDGE_RIGHT));
+				}
+				if (downOff)
+				{
+					vert.get(EDGE_DOWN).state = OFF;
+					vertexBecomesInteresting(vert.getVertex(EDGE_DOWN));
+				}
 			
-/* 			//experimental loop closing stuff
-			int[] colors = new int[4];
-			for (byte vin = EDGE_UP; vin <= EDGE_DOWN; vin++)
-			{
-				Vertex v2 = vert.getVertex(vin);
-				if (v2 != null)
-					colors[vin] = v2.color;
+				if (changed)
+					interesting = true;
 			}
-			if (colors[EDGE_UP] != 0)
-			{
-				if (colors[EDGE_UP] == colors[EDGE_LEFT])
-					vert.state &= ALL - UL;
-				if (colors[EDGE_UP] == colors[EDGE_RIGHT])
-					vert.state &= ALL - UR;
-				if (colors[EDGE_UP] == colors[EDGE_DOWN])
-					vert.state &= ALL - UD;
-			}
-			if (colors[EDGE_LEFT] != 0)
-			{
-				if (colors[EDGE_LEFT] == colors[EDGE_RIGHT])
-					vert.state &= ALL - LR;
-				if (colors[EDGE_LEFT] == colors[EDGE_DOWN])
-					vert.state &= ALL - LD;
-			}
-			if (colors[EDGE_RIGHT] != 0)
-			{
-				if (colors[EDGE_RIGHT] == colors[EDGE_DOWN])
-					vert.state &= ALL - RD;
-			} */
-			
-			
-			if (changed)
+			if (interesting)
 				vertexBecomesInteresting(row,col);
-			else
+/* 			else
 			{
 				if (upOff || leftOff)
 					cellBecomesInteresting(row-1,col-1);
@@ -1062,7 +1115,7 @@ public class SlitherSolverOO
 					cellBecomesInteresting(row,col-1);
 				if (downOff || rightOff)
 					cellBecomesInteresting(row,col);
-			}
+			} */
 
 		}
 	}
@@ -1096,8 +1149,8 @@ public class SlitherSolverOO
 		Vertex v2 = v1.getVertex(dir);
 		Edge e = v1.get(dir);
 		
-		v1.state &= ALL - UNUSED;
-		v2.state &= ALL - UNUSED;
+		//v1.give(dir);
+		v2.give(reverse(dir));
 		
 		int newColor;
 		if (v1.color == 0 && v2.color == 0) //first connection for both
@@ -1148,6 +1201,16 @@ public class SlitherSolverOO
 			}
 		}
 	}
+	public void vertexBecomesInteresting(Vertex v, Cell toExclude)
+	{
+		if (v != null)
+		{
+			if (toExclude != null)
+				vertexBecomesInteresting(v.row,v.col,toExclude.row,toExclude.col);
+			else
+				vertexBecomesInteresting(v.row,v.col);
+		}
+	}
 	public void vertexBecomesInteresting(Vertex v)
 	{
 		if (v != null)
@@ -1163,6 +1226,17 @@ public class SlitherSolverOO
 			}
 		}
 	}
+	public void vertexBecomesInteresting(int r, int c, int er, int ec)
+	{
+		for (int dr = -1; dr <= 0; dr++)
+		{
+			for (int dc = -1; dc <= 0; dc++)
+			{
+				if (r+dr != er || c+dc != ec)
+					cellBecomesInteresting(r+dr,c+dc);
+			}
+		}
+	}
 	public void cellBecomesInteresting(int r, int c)
 	{
 		if (r >= 0 && r < rows && c >= 0 && c < cols && !cells[r][c].done)
@@ -1174,6 +1248,13 @@ public class SlitherSolverOO
 	}
 	public void print(boolean showXs)
 	{
+		//print(showXs,false);
+		//System.out.println("\u0303\u0244");
+		//System.out.println(System.getProperty("file.encoding"));
+		print(showXs,true);
+	}
+	public void print(boolean showXs, boolean unicode)
+	{
 		//draw it with Unicode box-drawing characters! why not.
 		StringBuilder out = new StringBuilder((rows+1)*(cols+3)*7);
 		for (int r = 0; r < rows*2+1; r++)
@@ -1183,26 +1264,51 @@ public class SlitherSolverOO
 				if (r%2 == 0 && c%2 == 0)
 				{
 					byte v = vertices[r/2][c/2].state;
-					if (v == UD)
-						out.append('\u2502');
-					else if (v == UL)
-						out.append('\u2518');
-					else if (v == UR)
-						out.append('\u2514');
-					else if (v == LR)
-						out.append('\u2500');
-					else if (v == LD)
-						out.append('\u2510');
-					else if (v == RD)
-						out.append('\u250c');
+					if (unicode)
+					{
+						if (v == UD)
+							out.append('\u2502');
+						else if (v == UL)
+							out.append('\u2518');
+						else if (v == UR)
+							out.append('\u2514');
+						else if (v == LR)
+							out.append('\u2500');
+						else if (v == LD)
+							out.append('\u2510');
+						else if (v == RD)
+							out.append('\u250c');
+						else
+							out.append(' ');
+					}
 					else
-						out.append(' ');
+					{
+						if (v == UD)
+							out.append('|');
+						else if (v == UL)
+							out.append('+');
+						else if (v == UR)
+							out.append('+');
+						else if (v == LR)
+							out.append('-');
+						else if (v == LD)
+							out.append('+');
+						else if (v == RD)
+							out.append('+');
+						else
+							out.append(' ');
+					}
 				}
 				else if (r%2 == 0)
 				{
 					int e = edges[r][c/2].state;
 					if (e > OFF)
-						out.append('\u2500');
+					{
+						if (unicode)
+							out.append('\u2500');
+						else
+							out.append('-');
+					}
 					else if (e == OFF && showXs)
 						out.append('x');
 					else
@@ -1212,7 +1318,12 @@ public class SlitherSolverOO
 				{
 					int e = edges[r][c/2].state;
 					if (e > OFF)
-						out.append('\u2502');
+					{
+						if (unicode)
+							out.append('\u2502');
+						else
+							out.append('|');
+					}
 					else if (e == OFF && showXs)
 						out.append('x');
 					else
@@ -1223,13 +1334,29 @@ public class SlitherSolverOO
 					byte cell = cells[r/2][c/2].clue;
 					if (cell < NO_INFO)
 						out.append((char)('0'+cell));
+					else if (showXs)
+						out.append('.');
 					else
 						out.append(' ');
 				}
 			}
 			out.append('\n');
 		}
-		System.out.print(out);
+		if (unicode)
+		{
+			try {
+				//(new PrintStream(System.out,true,"UTF-8")).print(out);
+				byte[] encoded = out.toString().getBytes("UTF-8");
+				System.out.write(encoded,0,encoded.length);
+			} catch(Exception e) {
+				System.err.println("UTF-8 printing failed");
+				System.out.print(out);
+			}
+		}
+		else
+		{
+			System.out.print(out);
+		}
 	}
 	public void dumpVertices()
 	{
@@ -1239,6 +1366,22 @@ public class SlitherSolverOO
 			{
 				System.out.printf("%d,%d: %s\n",r,c,String.format("%7s",Integer.toBinaryString(vertices[r][c].state)).replace(' ','0'));
 			}
+		}
+	}
+	public byte reverse(byte dir)
+	{
+		switch(dir)
+		{
+			case EDGE_UP:
+				return EDGE_DOWN;
+			case EDGE_LEFT:
+				return EDGE_RIGHT;
+			case EDGE_RIGHT:
+				return EDGE_LEFT;
+			case EDGE_DOWN:
+				return EDGE_UP;
+			default:
+				return 0x00;
 		}
 	}
 	class Vertex
@@ -1273,24 +1416,52 @@ public class SlitherSolverOO
 		}
 		public boolean update(int mask)
 		{
-			return update((byte)mask,false);
+			return update((byte)mask,false,null);
 		}
 		public boolean update(int mask, boolean becomeInteresting)
 		{
-			return update((byte)mask,becomeInteresting);
+			return update((byte)mask,becomeInteresting,null);
 		}
-		public boolean update(byte mask)
+		public boolean update(int mask, boolean becomeInteresting, Cell toExclude)
 		{
-			return update(mask,false);
+			return update((byte)mask,becomeInteresting,toExclude);
 		}
-		public boolean update(byte mask, boolean becomeInteresting)
+		// public boolean update(byte mask)
+		// {
+			// return update(mask,false,null);
+		// }
+		// public boolean update(byte mask)
+		// {
+			// return update(mask,false,null);
+		// }
+		public boolean update(byte mask, boolean becomeInteresting, Cell toExclude)
 		{
 			byte newState = (byte)(state & mask);
 			boolean changed = newState != state;
 			state = newState;
 			if (changed && becomeInteresting)
-				vertexBecomesInteresting(row,col);
+				vertexBecomesInteresting(this,toExclude);
 			return changed;
+		}
+		public void give(byte dir)
+		{
+			switch(dir)
+			{
+				case EDGE_UP:
+					state &= ALL - (UNUSED | LR | LD | RD);
+					break;
+				case EDGE_LEFT:
+					state &= ALL - (UNUSED | UR | UD | RD);
+					break;
+				case EDGE_RIGHT:
+					state &= ALL - (UNUSED | UL | LD | UD);
+					break;
+				case EDGE_DOWN:
+					state &= ALL - (UNUSED | LR | UL | UR);
+					break;
+				default:
+					break;
+			}
 		}
 		
 		public Edge get(byte dir)
